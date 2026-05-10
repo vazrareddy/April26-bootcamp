@@ -38,6 +38,7 @@ Security groups stack:
 - RDS SG: inbound 5432 from ECS SG only
 
 ---
+<img width="2302" height="1286" alt="image" src="https://github.com/user-attachments/assets/35acc0ce-1ec6-4441-a531-aa71a68dd663" />
 
 ## Prerequisites
 
