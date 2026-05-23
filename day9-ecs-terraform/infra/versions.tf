@@ -15,10 +15,10 @@ terraform {
 
 terraform {
   backend "s3" {
-    bucket = "state-bucket-879381241087"
-    key = "april26/ecs/terraform.tfstate"
-    region = "ap-south-1"
+    bucket       = "state-bucket-879381241087"
+    key          = "april26/ecs/terraform.tfstate"
+    region       = "ap-south-1"
     use_lockfile = true
-    encrypt = true
-  } 
+    encrypt      = true
+  }
 }
