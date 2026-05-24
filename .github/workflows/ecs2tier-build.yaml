@@ -1,0 +1,64 @@
+name: ECS 2-Tier Build
+
+on:
+  push:
+    branches:
+      - main
+    # Only trigger when source files change, not on every push to main
+    paths:
+      - 'day9-ecs-terraform/src/**'
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  AWS_ACCOUNT_ID: 879381241087
+
+jobs:
+  build-and-push-image:
+    # What this job needs:
+    # - Docker installed on runner (ubuntu-latest has it by default)
+    # - Dockerfile path via 'path' env var
+    # - Image tag (using commit SHA for traceability)
+    # - Full ECR repository URI
+    # - AWS credentials via GitHub Secrets:
+    #     AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+
+    env:
+      ECR_REPO: 879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-2tier
+      ECR_TAG: ${{ github.sha }} # commit SHA used as image tag for traceability
+      path: day9-ecs-terraform/src # path to Dockerfile
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repo so we have access to the Dockerfile and source
+      - name: Checkout code
+        uses: actions/checkout@v4 # v6 does not exist, latest stable is v4
+
+      # Set up Docker Buildx for advanced build features (multi-platform, cache, etc.)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Configure AWS credentials from GitHub Secrets
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4 # v5 does not exist, use v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Authenticate Docker to ECR so we can push images
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build the Docker image from the src directory where the Dockerfile lives
+      - name: Build image
+        run: |
+          cd ${{ env.path }}
+          docker build -t ${{ env.ECR_REPO }}:${{ env.ECR_TAG }} .
+
+      # Push the built image to ECR
+      - name: Push image to ECR
+        run: |
+          docker push ${{ env.ECR_REPO }}:${{ env.ECR_TAG }}
