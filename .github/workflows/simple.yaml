@@ -1,0 +1,31 @@
+name: Simple Workflow
+
+on:
+  push:
+
+
+jobs:
+  run-linux-command:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run a command
+        run: echo "Hello, world! for linux"
+
+      - name: run multiple commands
+        run: |
+          echo "Hello, world! for linux"
+          echo "Hello, world! for linux"
+          echo "Hello, world! for linux"
+          echo "Hello, world! for linux"
+
+  run-windows-command:
+    runs-on: windows-latest
+    steps:
+      - name: Run a command
+        run: echo "Hello, world! from windows"
+
+  run-macos-command:
+    runs-on: macos-latest
+    steps:
+      - name: Run a command
+        run: echo "Hello, world! from macos"

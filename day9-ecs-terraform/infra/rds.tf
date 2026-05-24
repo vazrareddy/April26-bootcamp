@@ -46,5 +46,5 @@ resource "aws_secretsmanager_secret" "rds_password" {
 resource "aws_secretsmanager_secret_version" "rds_password" {
   secret_id = aws_secretsmanager_secret.rds_password.id
   # db_link = "postgresql://{user}:{password}@{host}:{port}/{database_name}"
-  secret_string = "postgresql://${aws_db_instance.this.username}:${random_password.rds_password.result}@${aws_db_instance.this.endpoint}:${aws_db_instance.this.port}/${aws_db_instance.this.db_name}"
+  secret_string = "postgresql://${aws_db_instance.this.username}:${random_password.rds_password.result}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${aws_db_instance.this.db_name}"
 }
