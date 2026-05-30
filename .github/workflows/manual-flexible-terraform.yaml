@@ -6,7 +6,7 @@ on:
       terraform_path:
         type: choice
         required: true
-        default: day9-ecs-terraform/infra
+        # default: day9-ecs-terraform/infra
         choices:
           - day9-ecs-terraform/infra
           - day9-ecs-terraform/modules/ecs
@@ -14,7 +14,7 @@ on:
       terraform_version:
         type: choice
         required: true
-        default: 1.12.1
+        # default: 1.12.1
         choices:
           - 1.12.1
           - 1.13.0
@@ -25,7 +25,7 @@ on:
       plan_or_apply_or_destroy:
         type: choice
         required: true
-        default: plan
+        # default: plan
         choices:
           - plan
           - apply
