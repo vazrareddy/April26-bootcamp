@@ -61,3 +61,34 @@ def unique_guest_username(display_name):
 
 def new_share_token():
     return uuid.uuid4().hex
+
+
+def validate_password(password):
+    if len(password) < 8:
+        return False
+    if not re.search("[a-z]", password):
+        return False
+    if not re.search("[A-Z]", password):
+        return False
+    if not re.search("[0-9]", password):
+        return False
+    return True
+
+
+def validate_email(email):
+    pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+    return re.match(pattern, email) is not None
+
+
+def unique_username_from_email(email):
+    from app import db
+    from app.models.models import User
+
+    local = email.split("@")[0]
+    base = re.sub(r"[^a-zA-Z0-9_]", "", local.lower())[:20] or "user"
+    candidate = base
+    suffix = 1
+    while User.query.filter_by(username=candidate).first():
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    return candidate

@@ -58,17 +58,30 @@ def create_app():
         return response
 
     with app.app_context():
-        from app.routes import routes, auth, retro
+        from app.routes import routes, auth, retro, tickets, teams
         from app.models import models  # noqa: F401 — register models before create_all
-        from app.seed import seed_admin_user, ensure_schema
+        from app.seed import (
+            backfill_ticket_teams,
+            ensure_schema,
+            seed_admin_users,
+            seed_devops_retros,
+            seed_devops_teams,
+            seed_devops_tickets,
+        )
 
         app.register_blueprint(routes.bp)
         app.register_blueprint(auth.auth_bp)
         app.register_blueprint(retro.retro_bp)
+        app.register_blueprint(tickets.tickets_bp)
+        app.register_blueprint(teams.teams_bp)
 
         db.create_all()
         ensure_schema()
-        seed_admin_user()
+        seed_admin_users()
+        team_by_key = seed_devops_teams()
+        seed_devops_retros()
+        seed_devops_tickets(team_by_key)
+        backfill_ticket_teams()
 
         @app.context_processor
         def inject_nav():

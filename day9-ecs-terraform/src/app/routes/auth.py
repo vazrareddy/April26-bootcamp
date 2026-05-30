@@ -1,27 +1,9 @@
 from flask import Blueprint, render_template, request, flash, redirect, url_for
 from app.models.models import User, db
-from app.routes.helpers import safe_next_url
-import re
+from app.routes.helpers import safe_next_url, validate_email, validate_password
 from flask_login import login_user, logout_user, current_user
 
 auth_bp = Blueprint("auth", __name__)
-
-
-def validate_password(password):
-    if len(password) < 8:
-        return False
-    if not re.search("[a-z]", password):
-        return False
-    if not re.search("[A-Z]", password):
-        return False
-    if not re.search("[0-9]", password):
-        return False
-    return True
-
-
-def validate_email(email):
-    pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-    return re.match(pattern, email) is not None
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])

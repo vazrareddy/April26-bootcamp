@@ -216,4 +216,4 @@ __marimo__/
 *.tfstate
 *.tfstate.backup
 *.tfstate.backup.lock.info
-*.tfstate.backup.lock.info.backup
+*.tfstate.backup.lock.info.backup.DS_Store

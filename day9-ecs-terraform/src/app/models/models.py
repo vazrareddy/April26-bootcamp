@@ -154,3 +154,148 @@ class RetroComment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     author = db.relationship("User", backref="retro_comments")
+
+
+TICKET_STATUSES = {
+    "backlog": {"label": "Backlog", "badge": "badge-muted"},
+    "todo": {"label": "To Do", "badge": "badge-info"},
+    "in_progress": {"label": "In Progress", "badge": "badge-warning"},
+    "in_review": {"label": "In Review", "badge": "badge-info"},
+    "done": {"label": "Done", "badge": "badge-success"},
+}
+
+TICKET_PRIORITIES = {
+    "lowest": {"label": "Lowest", "badge": "badge-muted"},
+    "low": {"label": "Low", "badge": "badge-muted"},
+    "medium": {"label": "Medium", "badge": "badge-info"},
+    "high": {"label": "High", "badge": "badge-warning"},
+    "highest": {"label": "Highest", "badge": "badge-danger"},
+}
+
+TICKET_TYPES = {
+    "bug": {"label": "Bug", "emoji": "🐛"},
+    "task": {"label": "Task", "emoji": "✅"},
+    "story": {"label": "Story", "emoji": "📖"},
+    "epic": {"label": "Epic", "emoji": "⚡"},
+}
+
+SUBTASK_STATUSES = {
+    "todo": {"label": "To Do", "badge": "badge-muted"},
+    "in_progress": {"label": "In Progress", "badge": "badge-warning"},
+    "done": {"label": "Done", "badge": "badge-success"},
+}
+
+PROJECT_KEY = "DEV"
+
+TEAM_ROLES = {
+    "owner": {"label": "Owner"},
+    "member": {"label": "Member"},
+}
+
+
+class Team(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    project_key = db.Column(db.String(10), unique=True, nullable=False, index=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    creator = db.relationship("User", foreign_keys=[created_by], backref="created_teams")
+    members = db.relationship(
+        "TeamMember", backref="team", cascade="all, delete-orphan"
+    )
+    tickets = db.relationship("Ticket", backref="team")
+
+
+class TeamMember(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey("team.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    role = db.Column(db.String(20), default="member", nullable=False)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship("User", backref="team_memberships")
+
+    __table_args__ = (
+        db.UniqueConstraint("team_id", "user_id", name="uq_team_member"),
+    )
+
+
+class Ticket(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey("team.id"), nullable=False)
+    ticket_number = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    status = db.Column(db.String(20), default="todo", nullable=False)
+    priority = db.Column(db.String(20), default="medium", nullable=False)
+    issue_type = db.Column(db.String(20), default="task", nullable=False)
+    assignee_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    reporter_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    assignee = db.relationship("User", foreign_keys=[assignee_id], backref="assigned_tickets")
+    reporter = db.relationship("User", foreign_keys=[reporter_id], backref="reported_tickets")
+    subtasks = db.relationship(
+        "Subtask", backref="ticket", cascade="all, delete-orphan", order_by="Subtask.created_at"
+    )
+    comments = db.relationship(
+        "TicketComment",
+        backref="ticket",
+        cascade="all, delete-orphan",
+        order_by="TicketComment.created_at",
+        foreign_keys="TicketComment.ticket_id",
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("team_id", "ticket_number", name="uq_team_ticket_number"),
+    )
+
+    @property
+    def key(self):
+        key = self.team.project_key if self.team else PROJECT_KEY
+        return f"{key}-{self.ticket_number}"
+
+    @property
+    def subtask_progress(self):
+        if not self.subtasks:
+            return None
+        done = sum(1 for s in self.subtasks if s.status == "done")
+        return done, len(self.subtasks)
+
+
+class Subtask(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey("ticket.id"), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    status = db.Column(db.String(20), default="todo", nullable=False)
+    assignee_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    assignee = db.relationship("User", backref="assigned_subtasks")
+    comments = db.relationship(
+        "TicketComment",
+        backref="subtask",
+        cascade="all, delete-orphan",
+        order_by="TicketComment.created_at",
+        foreign_keys="TicketComment.subtask_id",
+    )
+
+
+class TicketComment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey("ticket.id"))
+    subtask_id = db.Column(db.Integer, db.ForeignKey("subtask.id"))
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    author = db.relationship("User", backref="ticket_comments")

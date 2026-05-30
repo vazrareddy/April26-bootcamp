@@ -21,6 +21,8 @@
                 {% endif %}
                 <a href="{{ url_for('retro.list_retros') }}" class="nav-link {% if current_endpoint and current_endpoint.startswith('retro.') %}active{% endif %}">Retros</a>
                 {% if not current_user.is_guest %}
+                <a href="{{ url_for('teams.list_teams') }}" class="nav-link {% if current_endpoint and current_endpoint.startswith('teams.') %}active{% endif %}">Teams</a>
+                <a href="{{ url_for('tickets.list_tickets') }}" class="nav-link {% if current_endpoint and current_endpoint.startswith('tickets.') %}active{% endif %}">Tickets</a>
                 <div class="nav-dropdown">
                     <button type="button" class="nav-link nav-dropdown-toggle" aria-haspopup="true">More ▾</button>
                     <div class="nav-dropdown-menu">
@@ -64,6 +66,8 @@
         {% endif %}
         <a href="{{ url_for('retro.list_retros') }}" class="nav-link">Retros</a>
         {% if not current_user.is_guest %}
+        <a href="{{ url_for('teams.list_teams') }}" class="nav-link">Teams</a>
+        <a href="{{ url_for('tickets.list_tickets') }}" class="nav-link">Tickets</a>
         <a href="{{ url_for('main.students') }}" class="nav-link">Students</a>
         <a href="{{ url_for('main.attendance') }}" class="nav-link">Attendance</a>
         <a href="{{ url_for('main.classes') }}" class="nav-link">Classes</a>
