@@ -1,12 +1,12 @@
 name: ECS 2-Tier Build
 
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
     # Only trigger when source files change, not on every push to main
-    paths:
-      - 'day9-ecs-terraform/src/**'
+    # paths:
+    #   - 'day9-ecs-terraform/src/**'
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
