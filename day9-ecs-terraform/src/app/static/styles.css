@@ -29,6 +29,8 @@
 body {
   margin: 0;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(
     135deg,
     #fbc2eb 0%,
@@ -312,9 +314,67 @@ body.overflow-hidden {
 }
 
 .main-content {
+  flex: 1;
   max-width: 1280px;
+  width: 100%;
   margin: 0 auto;
   padding: 2rem 1.5rem 3rem;
+}
+
+.site-footer {
+  background: rgba(255, 255, 255, 0.88);
+  border-top: 3px dashed var(--accent-pink);
+  backdrop-filter: blur(8px);
+  margin-top: auto;
+  box-shadow: 0 -4px 16px rgba(91, 33, 182, 0.08);
+}
+
+.footer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.footer-credit {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.footer-social {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.footer-social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0.4rem 0.85rem;
+  border: 2px solid var(--border-color);
+  border-radius: 999px;
+  transition: var(--transition);
+}
+
+.footer-social-link:hover {
+  color: white;
+  background: linear-gradient(135deg, var(--primary), var(--accent-pink));
+  border-color: transparent;
+}
+
+.footer-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
 }
 
 .page-title {
