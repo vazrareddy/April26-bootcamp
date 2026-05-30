@@ -4,18 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       terraform_path:
-        type: options
+        type: choice
         required: true
         # default: day9-ecs-terraform/infra
-        choices:
+        options:
           - day9-ecs-terraform/infra
           - day9-ecs-terraform/modules/ecs
       
       terraform_version:
-        type: options
+        type: choice
         required: true
         # default: 1.12.1
-        choices:
+        options:
           - 1.12.1
           - 1.13.0
           - 1.14.0
@@ -23,10 +23,10 @@ on:
           - 1.16.0
 
       plan_or_apply_or_destroy:
-        type: options
+        type: choice
         required: true
         # default: plan
-        choices:
+        options:
           - plan
           - apply
           - destroy
