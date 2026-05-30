@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{% endblock %} · DevOps Portal</title>
+    <title>{% block title %}{% endblock %} · LivingDevOps Portal</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
     <header class="site-header">
         <div class="header-inner">
             <a href="{% if current_user.is_authenticated %}{% if current_user.is_guest %}{{ url_for('retro.list_retros') }}{% else %}{{ url_for('main.dashboard') }}{% endif %}{% else %}{{ url_for('auth.login') }}{% endif %}" class="brand">
-                <span class="brand-title">DevOps Portal</span>
+                <span class="brand-title">LivingDevOps Portal</span>
                 <span class="brand-subtitle">Ship · Retro · Learn</span>
             </a>
 

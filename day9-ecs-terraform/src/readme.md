@@ -1,4 +1,4 @@
-# DevOps Portal
+# LivingDevOps Portal
 
 A Flask bootcamp app that combines a **student portal**, **sprint retrospectives**, **Jira-style ticketing**, and **team management** — containerized for AWS ECS (Day 9).
 
@@ -59,7 +59,7 @@ pytest -v       # verbose output
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│                     DevOps Portal                           │
+│                  LivingDevOps Portal                        │
 ├──────────────┬──────────────┬──────────────┬────────────────┤
 │   Portal     │    Retros    │    Teams     │    Tickets     │
 │  (Dashboard, │  Sticky-note │  Squads +    │  Jira-style    │
