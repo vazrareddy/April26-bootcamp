@@ -59,12 +59,17 @@ jobs:
       - name: Build image
         run: |
           cd ${{ env.path }}
-          docker build -t ${{ env.ECR_REPO }}:${{ env.ECR_TAG }} .
-
-      # Push the built image to ECR
-      - name: Push image to ECR
-        run: |
+          docker --platform linux/amd64  build -t app .
+          docker tag app:latest ${{ env.ECR_REPO }}:${{ env.ECR_TAG }}
+          docker tag app:latest ${{ env.ECR_REPO }}:latest
           docker push ${{ env.ECR_REPO }}:${{ env.ECR_TAG }}
+          docker push ${{ env.ECR_REPO }}:latest
+
+
+          # docker --platform linux/amd64 build -t ${{ env.ECR_REPO }}:${{ env.ECR_TAG }} -t ${{ env.ECR_REPO }}:latest .
+          # docker --platform linux/amd64 push ${{ env.ECR_REPO }} --all-tags
+          # docker buildx build --platform linux/amd64 --push -t ${{ env.ECR_REPO }}:${{ env.ECR_TAG }} .
+          # docker buildx build --platform linux/amd64 --push -t ${{ env.ECR_REPO }}:latest .
 
 
   deploy-ecs-service:

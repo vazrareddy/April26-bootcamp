@@ -20,8 +20,9 @@ variable "ecs_service" {
 }
 
 variable "app_image" {
-  default = "879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-2tier:1.0"
+  default = "879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-2tier:latest"
 }
+
 variable "port" {
   type    = number
   default = 8000
