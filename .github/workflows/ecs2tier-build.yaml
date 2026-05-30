@@ -88,19 +88,21 @@ jobs:
       # download the task definition 
       - name: Download task definition
         run: |
-          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEF }} --region ${{ env.AWS_REGION }} > task-definition.json
-          cat task-definition.json
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK_DEF }} \
+            --region ${{ env.AWS_REGION }} \
+            --query taskDefinition \
+            > task-definition.json
 
-      # update the task definition with the new image tag
       - name: Update task definition
         run: |
-          jq '.containerDefinitions[0].image = "${{ env.ECR_REPO }}:${{ env.ECR_TAG }}"' task-definition.json > task-definition-updated.json
-          cat task-definition-updated.json
+          jq '.containerDefinitions[0].image = "${{ env.ECR_REPO }}:${{ env.ECR_TAG }}"' \
+            task-definition.json > task-definition-updated.json
 
       - name: Deploy to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          task-definition: task-definition.json
+          task-definition: task-definition-updated.json
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: false
