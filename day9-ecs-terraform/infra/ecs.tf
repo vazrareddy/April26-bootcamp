@@ -75,3 +75,53 @@ resource "aws_ecs_service" "app_service" {
 
 
 # auto scaling policy for ecs service
+
+# target scaling policy for ecs service
+
+resource "aws_appautoscaling_target" "ecs" {
+  max_capacity       = 4
+  min_capacity       = 1
+  # resource_id        = "service/${var.ecs_cluster_name}/${var.ecs_service}"
+  resource_id        = "service/${aws_ecs_cluster.ecs_cluster.name}/${aws_ecs_service.app_service.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "cpu" {
+  name               = "cpu-tracking"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 60.0
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+  }
+}
+
+# step scaling policy for ecs service
+
+resource "aws_appautoscaling_policy" "memory" {
+  name               = "memory-tracking"
+  policy_type        = "StepScaling"
+  resource_id        = aws_appautoscaling_target.ecs.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs.service_namespace
+
+  step_scaling_policy_configuration {
+    step_adjustment {
+      scaling_adjustment = 1
+      metric_interval_lower_bound = 0
+      metric_interval_upper_bound = 10
+    }
+  }
+}
+
+# custom metric scaling policy for ecs service
+
+ 

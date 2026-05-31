@@ -1,0 +1,9 @@
+# dev
+terraform init -backend-config=vars/dev.tfbackend
+terraform plan -var-file=vars/dev.tfvars
+terraform apply -var-file=env/dev.tfvars
+
+# prod
+terraform init -backend-config=vars/prod.tfbackend
+terraform plan -var-file=vars/prod.tfvars
+terraform apply -var-file=env/prod.tfvars
