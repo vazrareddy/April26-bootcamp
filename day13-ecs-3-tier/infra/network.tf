@@ -22,18 +22,18 @@ module "network" {
   ]
   public_subnet_data = [
     {
-      cidr              = "10.0.2.0/24"
+      cidr              = "10.0.4.0/24"
+      availability_zone = "ap-south-1a"
+      prefix            = "public"
+    },
+    {
+      cidr              = "10.0.5.0/24"
       availability_zone = "ap-south-1b"
       prefix            = "public"
     },
     {
-      cidr              = "10.0.3.0/24"
+      cidr              = "10.0.6.0/24"
       availability_zone = "ap-south-1c"
-      prefix            = "public"
-    },
-    {
-      cidr              = "10.0.4.0/24"
-      availability_zone = "ap-south-1d"
       prefix            = "public"
     }
   ]
@@ -47,3 +47,16 @@ module "network" {
   need_nat_gateway = true
   need_single_nat_gateway = false
 }
+
+
+# output "vpc_id" {
+#   value = module.network.vpc_id
+# }
+
+# output "public_subnet_ids" {
+#   value = module.network.public_subnet_ids
+# }
+
+# output "private_subnet_ids" {
+#   value = module.network.private_subnet_ids
+# }
