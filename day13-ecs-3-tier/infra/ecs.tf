@@ -83,7 +83,7 @@ dynamic "load_balancer" {
   }
 
   network_configuration {
-    subnets          = [module.network.private_subnet_ids]
+    subnets          = module.network.private_subnet_ids
     security_groups  = each.value.security_groups
     assign_public_ip = false
   }

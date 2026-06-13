@@ -22,7 +22,7 @@ resource "aws_security_group" "rds_sg" {
     to_port     = 5432
     protocol    = "tcp"
     # cidr_blocks = ["0.0.0.0/0"]
-     security_groups = [aws_security_group.frontend_sg.id]
+     security_groups = [aws_security_group.backend_sg.id]
   }
 
   egress {

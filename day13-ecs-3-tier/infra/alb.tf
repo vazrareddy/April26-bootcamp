@@ -1,7 +1,7 @@
 # Want ALB for frontend service only
 # alb 
 resource "aws_alb" "app" {
-  name            = "${var.environment}-${var.prefix}-${var.project}-alb"
+  name            = "${var.environment}-${var.project}-alb"
   internal        = false
   security_groups = [aws_security_group.alb_sg.id]
   subnets         = module.network.public_subnet_ids
@@ -14,7 +14,7 @@ resource "aws_alb" "app" {
 
 # alb target group
 resource "aws_alb_target_group" "app" {
-  name     = "${var.environment}-${var.prefix}-${var.project}-tg"
+  name     = "${var.environment}-${var.project}-tg"
 #   port     = var.frontend.port
   port     = 80
   protocol = "HTTP"
@@ -54,7 +54,7 @@ resource "aws_alb_listener" "https" {
     port              = 443
     protocol          = "HTTPS"
     ssl_policy        = "ELBSecurityPolicy-2016-08"
-    certificate_arn   = aws_acm_certificate.app_cert.arn
+    certificate_arn   = aws_acm_certificate_validation.app_cert.certificate_arn
     
     default_action {
         type             = "forward"

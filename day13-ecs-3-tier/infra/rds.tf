@@ -1,5 +1,11 @@
 
 # rds subnet group
+resource "aws_kms_key" "rds_kms" {
+  count                   = var.environment == "prod" ? 1 : 0
+  description             = "KMS key for RDS cluster encryption"
+  deletion_window_in_days = 7
+}
+
 resource "aws_db_subnet_group" "this" {
   name        = "${var.environment}-${var.prefix}-${var.project}-rds"
   description = "Subnet group for rds instance"
@@ -16,7 +22,7 @@ resource "aws_db_instance" "postgres" {
  count = var.environment != "prod" ? 1 : 0
   identifier              = "${var.environment}-${var.prefix}-${var.project}-rds-instance"
   engine                  = "postgres"
-  engine_version          = "14.9"
+  engine_version          = "14.23"
   instance_class          = "db.t3.micro"
   username                = "postgres"
   password                = random_password.rds_password.result
@@ -56,16 +62,16 @@ resource "aws_rds_cluster" "postgres" {
   count                   = var.environment == "prod" ? 1 : 0
   cluster_identifier      = "${var.environment}-${var.prefix}-${var.project}-rds-cluster"
   engine                  = "aurora-postgresql"
-  engine_version          = "14.9"
-  master_username         = postgres
+  engine_version          = "14.22"
+  master_username         = "postgres"
   master_password         = random_password.rds_password.result
   database_name           = "mydb"
   backup_retention_period = 7
   preferred_backup_window = "07:00-09:00"
-  vpc_security_group_ids  = [aws_security_group.rds.id]
-  db_subnet_group_name    = aws_db_subnet_group.postgres.id
-   storage_encrypted       = true
-  kms_key_id              = aws_kms_key.rds_kms.arn
+  vpc_security_group_ids  = [aws_security_group.rds_sg.id]
+  db_subnet_group_name    = aws_db_subnet_group.this.name
+  storage_encrypted       = true
+  kms_key_id              = aws_kms_key.rds_kms[0].arn
 
   tags = {
     environment = var.environment
@@ -81,7 +87,7 @@ resource "aws_rds_cluster_instance" "postgres_writer" {
   engine               = aws_rds_cluster.postgres[0].engine
   engine_version       = aws_rds_cluster.postgres[0].engine_version
   publicly_accessible  = false
-  db_subnet_group_name = aws_db_subnet_group.this.id
+  db_subnet_group_name = aws_db_subnet_group.this.name
   ca_cert_identifier   = "rds-ca-rsa2048-g1"
   apply_immediately    = true
 
@@ -99,7 +105,7 @@ resource "aws_rds_cluster_instance" "postgres_reader" {
   engine               = aws_rds_cluster.postgres[0].engine
   engine_version       = aws_rds_cluster.postgres[0].engine_version
   publicly_accessible  = false
-  db_subnet_group_name = aws_db_subnet_group.this.id
+  db_subnet_group_name = aws_db_subnet_group.this.name
   ca_cert_identifier   = "rds-ca-rsa2048-g1"
   apply_immediately    = true
 

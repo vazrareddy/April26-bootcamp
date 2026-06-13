@@ -15,7 +15,7 @@ module "network" {
       prefix            = "private"
     },
     {
-      cidr              = "10.0.3.0/24"
+      cidr              = "10.0.7.0/24"
       availability_zone = "ap-south-1c"
       prefix            = "private"
     }
@@ -45,7 +45,7 @@ module "network" {
     project = var.project,
   }
   need_nat_gateway = true
-  need_single_nat_gateway = false
+  need_single_nat_gateway = true
 }
 
 
