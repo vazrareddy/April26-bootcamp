@@ -1,5 +1,5 @@
 ---
-name: Terraform ECS 2 Tier infra
+name: Terraform ECS 3 Tier infra
 
 on:
   workflow_dispatch:
