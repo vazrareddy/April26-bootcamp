@@ -1,0 +1,116 @@
+# name: ECS 2-Tier Build
+
+# on:
+#   push:
+#     branches:
+#       - main
+#     # Only trigger when source files change, not on every push to main
+#     paths:
+#       - 'day13-ecs-3-tier/app**'
+#   # Allow manual trigger from GitHub Actions UI
+#   workflow_dispatch:
+
+# env:
+#   AWS_REGION: ap-south-1
+#   AWS_ACCOUNT_ID: 879381241087
+#   ECR_REPO: 879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-2tier
+#   ECR_TAG: ${{ github.sha }} # commit SHA used as image tag for traceability
+#   path_backend: day13-ecs-3-tier/app/backend # path to Dockerfile
+#   path_frontend: day13-ecs-3-tier/app/frontend # path to Dockerfile
+#   ECS_TASK_DEF_BACKEND: 3tier-service-backend
+#   ECS_TASK_DEF_FRONTEND: 3tier-service-frontend
+#   ECS_SERVICE_BACKEND: april-3tier-ecs-service-backend
+#   ECS_SERVICE_FRONTEND: april-3tier-ecs-service-frontend
+#   ECS_CLUSTER: april-3tier-ecs-cluster
+#   ECR_REPO_BACKEND: 879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-3tier-backend
+#   ECR_REPO_FRONTEND: 879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-3tier-frontend
+
+
+
+
+# jobs:
+#   build-and-push-image:
+#     # What this job needs:
+#     # - Docker installed on runner (ubuntu-latest has it by default)
+#     # - Dockerfile path via 'path' env var
+#     # - Image tag (using commit SHA for traceability)
+#     # - Full ECR repository URI
+#     # - AWS credentials via GitHub Secrets:
+#     #     AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+
+#     env:
+#       path: day9-ecs-terraform/src # path to Dockerfile
+
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       # Checkout the repo so we have access to the Dockerfile and source
+#       - name: Checkout code
+#         uses: actions/checkout@v4 # v6 does not exist, latest stable is v4
+
+#       # Set up Docker Buildx for advanced build features (multi-platform, cache, etc.)
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
+
+#       # Configure AWS credentials from GitHub Secrets
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4 # v5 does not exist, use v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ env.AWS_REGION }}
+
+#       # Authenticate Docker to ECR so we can push images
+#       - name: Login to ECR
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       # Build the Docker image from the src directory where the Dockerfile lives
+#       - name: Build image
+#         run: |
+#           cd ${{ env.path }}
+         
+#           # docker build --platform linux/amd64  -t ${{ env.ECR_REPO }}:${{ env.ECR_TAG }} -t ${{ env.ECR_REPO }}:latest .
+#           docker buildx build --platform linux/amd64 --push -t ${{ env.ECR_REPO }}:${{ env.ECR_TAG }} -t ${{ env.ECR_REPO }}:latest .
+          
+          
+#           #  docker push ${{ env.ECR_REPO }} --all-tags
+#           # docker buildx build --platform linux/amd64 --push -t ${{ env.ECR_REPO }}:${{ env.ECR_TAG }} .
+#           # docker buildx build --platform linux/amd64 --push -t ${{ env.ECR_REPO }}:latest .
+
+
+#   deploy-ecs-service:
+#     needs: build-and-push-image
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ env.AWS_REGION }}
+
+#       # download the task definition 
+#       - name: Download task definition
+#         run: |
+#           aws ecs describe-task-definition \
+#             --task-definition ${{ env.ECS_TASK_DEF }} \
+#             --region ${{ env.AWS_REGION }} \
+#             --query taskDefinition \
+#             > task-definition.json
+
+#       - name: Update task definition
+#         run: |
+#           jq '.containerDefinitions[0].image = "${{ env.ECR_REPO }}:${{ env.ECR_TAG }}"' \
+#             task-definition.json > task-definition-updated.json
+
+#       - name: Deploy to Amazon ECS
+#         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+#         with:
+#           task-definition: task-definition-updated.json
+#           service: ${{ env.ECS_SERVICE }}
+#           cluster: ${{ env.ECS_CLUSTER }}
+#           wait-for-service-stability: false
+
+#       # force the deployemnt by updating the service and task def
