@@ -3,21 +3,21 @@ name: Terraform ECS 2 Tier infra
 
 on:
   workflow_dispatch:
-  inputs:
-    environment:
-      type: choice
-      required: true
-      options:
-        - dev
-        - prod
+    inputs:
+      environment:
+        type: choice
+        required: true
+        options:
+          - dev
+          - prod
 
-    plan_or_apply_or_destroy:
-      type: choice
-      required: true
-      options:
-        - plan
-        - apply
-        - destroy
+      plan_or_apply_or_destroy:
+        type: choice
+        required: true
+        options:
+          - plan
+          - apply
+          - destroy
 
 env:
   AWS_REGION: ap-south-1

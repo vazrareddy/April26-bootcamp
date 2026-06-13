@@ -2,9 +2,9 @@
 name: ECS DEV 3-Tier Build Deploy
 
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
