@@ -35,6 +35,8 @@ def _emit_emf(metrics, dimensions, values):
 
 def emit_request_metrics(method, endpoint, status, duration_ms):
     status_class = f"{status // 100}xx"
+    duration = round(duration_ms, 2)
+
     _emit_emf(
         metrics=[
             {"Name": "RequestDuration", "Unit": "Milliseconds"},
@@ -46,9 +48,16 @@ def emit_request_metrics(method, endpoint, status, duration_ms):
             "StatusClass": status_class,
         },
         values={
-            "RequestDuration": round(duration_ms, 2),
+            "RequestDuration": duration,
             "HttpRequestCount": 1,
         },
+    )
+
+    # Single-dimension aggregate used by CloudWatch latency alarms.
+    _emit_emf(
+        metrics=[{"Name": "RequestDurationOverall", "Unit": "Milliseconds"}],
+        dimensions={"Service": "backend"},
+        values={"RequestDurationOverall": duration},
     )
 
 

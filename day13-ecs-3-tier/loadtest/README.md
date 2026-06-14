@@ -9,9 +9,10 @@ For intentionally triggering CloudWatch alarms, see [`../docs/cloudwatch-alarm-d
 | Script | Purpose | Load profile |
 |--------|---------|--------------|
 | `scripts/smoke.js` | Sanity check — 1 user, full quiz journey | 1 iteration |
-| `scripts/quiz-load.js` | Normal load — ramp to 25 users | ~5 minutes |
-| `scripts/quiz-stress.js` | Stress test — ramp to 100 users | ~9 minutes |
-| `scripts/frontend-load.js` | Frontend + proxied `/api` routes | 10 users, 2 minutes |
+| `scripts/quiz-load.js` | Normal load — ramp to 50 users | ~5 minutes |
+| `scripts/quiz-constant.js` | Constant load — separate VU pool per API route | 10 minutes (default) |
+| `scripts/quiz-stress.js` | Stress test — ramp to 200 users | ~9 minutes |
+| `scripts/frontend-load.js` | Frontend + proxied `/api` routes | 20 users, 2 minutes |
 
 Each quiz journey simulates a real user:
 
@@ -116,7 +117,7 @@ Or:
 k6 run scripts/quiz-load.js
 ```
 
-This ramps from 0 → 10 → 25 virtual users over ~5 minutes.
+This ramps from 0 → 20 → 50 virtual users over ~5 minutes.
 
 **Default thresholds:**
 
@@ -125,7 +126,69 @@ This ramps from 0 → 10 → 25 virtual users over ~5 minutes.
 
 ---
 
-## Step 4 — Run stress test (optional)
+## Step 4 — Run constant load (per request type)
+
+`quiz-constant.js` runs **five parallel scenarios**, each hammering one API route with a steady VU count for a fixed duration.
+
+| Scenario | Endpoint |
+|----------|----------|
+| `quiz_start` | `POST /api/quiz/:topic/start` |
+| `quiz_submit` | `POST /api/quiz/submit` |
+| `leaderboard_topic` | `GET /api/leaderboard?scope=topic&topic=...` |
+| `leaderboard_stats` | `GET /api/leaderboard/stats` |
+| `topics` | `GET /api/topics` |
+
+**Defaults:** 50 VUs per scenario, 10 minute duration (250 total concurrent VUs).
+
+### Local
+
+```bash
+# Default: 50 VUs per route, 10 minutes
+./run-local.sh constant
+
+# Custom duration and global VU count
+VUS=30 DURATION=5m k6 run -e BASE_URL=http://localhost:8000 scripts/quiz-constant.js
+
+# Tune each request type independently
+VUS_START=40 VUS_SUBMIT=60 VUS_LEADERBOARD=30 VUS_STATS=30 VUS_TOPICS=20 DURATION=10m \
+  k6 run -e BASE_URL=http://localhost:8000 scripts/quiz-constant.js
+```
+
+### Live
+
+```bash
+# Default constant load against production
+./run-live.sh constant
+
+# 10 minutes at 50 VUs per route
+VUS=50 DURATION=10m ./run-live.sh constant
+
+# Heavier submit load, lighter reads
+VUS=50 VUS_SUBMIT=100 VUS_STATS=25 VUS_TOPICS=25 DURATION=10m ./run-live.sh constant
+
+# Different topic
+TOPIC=kubernetes VUS=40 DURATION=10m ./run-live.sh constant
+```
+
+### Direct k6 (any target)
+
+```bash
+k6 run \
+  -e BASE_URL=https://devopsdojo.livingdevops.org \
+  -e TOPIC=docker \
+  -e VUS=50 \
+  -e DURATION=10m \
+  -e VUS_START=50 \
+  -e VUS_SUBMIT=50 \
+  -e VUS_LEADERBOARD=50 \
+  -e VUS_STATS=50 \
+  -e VUS_TOPICS=50 \
+  scripts/quiz-constant.js
+```
+
+---
+
+## Step 5 — Run stress test (optional)
 
 Find the breaking point:
 
@@ -133,11 +196,11 @@ Find the breaking point:
 ./run-local.sh stress
 ```
 
-Ramps up to **100 concurrent users**. Use only against local compose or a dedicated test environment — not production during class hours.
+Ramps up to **200 concurrent users**. Use only against local compose or a dedicated test environment — not production during class hours.
 
 ---
 
-## Step 5 — Test through the frontend proxy (optional)
+## Step 6 — Test through the frontend proxy (optional)
 
 ```bash
 ./run-local.sh frontend
@@ -153,7 +216,7 @@ This hits the Express server on port 3000, which proxies `/api/*` to the backend
 
 ---
 
-## Step 6 — Watch metrics during the test
+## Step 7 — Watch metrics during the test
 
 ### k6 terminal output
 
@@ -205,14 +268,22 @@ chmod +x run-live.sh
 # 1. Sanity check (always first)
 ./run-live.sh smoke
 
-# 2. Normal load (~25 users, ~5 min)
+# 2. Normal ramping load (~50 users peak, ~5 min)
 ./run-live.sh load
+
+# 3. Constant load — 50 VUs per route, 10 min (default)
+./run-live.sh constant
+
+# 4. Constant load with custom VU variables
+VUS=50 DURATION=10m ./run-live.sh constant
+VUS_SUBMIT=80 VUS_STATS=40 DURATION=15m ./run-live.sh constant
 ```
 
 Different topic or URL:
 
 ```bash
 APP_URL=https://devopsdojo.livingdevops.org TOPIC=kubernetes ./run-live.sh load
+VUS=25 DURATION=5m TOPIC=kubernetes ./run-live.sh constant
 ```
 
 Or directly with k6:
@@ -233,7 +304,7 @@ curl https://devopsdojo.livingdevops.org/api/topics
 - Quiz traffic hits `{APP_URL}/api/quiz/...` through the ALB → frontend → backend path
 - Player names `loadtest_vu*_iter*` will appear on the **live leaderboard**
 - Watch CloudWatch alarms while the test runs (5xx, latency, ECS CPU, RDS connections)
-- Use `smoke` → `load` first; avoid `stress` on a shared dev environment unless intentional
+- Use `smoke` → `load` → `constant` first; avoid `stress` on a shared dev environment unless intentional
 
 ---
 
@@ -246,6 +317,29 @@ curl https://devopsdojo.livingdevops.org/api/topics
 | `FRONTEND_URL` | `http://localhost:3000` | Frontend base URL |
 | `TOPIC` | `docker` | Quiz topic slug |
 | `PLAYER_PREFIX` | `loadtest` | Prefix for generated player names |
+| `VUS` | `50` | Default VUs **per scenario** in `quiz-constant.js` |
+| `VUS_START` | `VUS` | VUs for `POST /api/quiz/:topic/start` |
+| `VUS_SUBMIT` | `VUS` | VUs for `POST /api/quiz/submit` |
+| `VUS_LEADERBOARD` | `VUS` | VUs for `GET /api/leaderboard` |
+| `VUS_STATS` | `VUS` | VUs for `GET /api/leaderboard/stats` |
+| `VUS_TOPICS` | `VUS` | VUs for `GET /api/topics` |
+| `DURATION` | `10m` | Constant-load duration (k6 format, e.g. `5m`, `30s`) |
+
+### Quick reference — VU variable commands
+
+```bash
+# Same VUs for every route
+VUS=50 DURATION=10m ./run-live.sh constant
+
+# Only increase submit pressure
+VUS=50 VUS_SUBMIT=100 ./run-live.sh constant
+
+# Light read load, heavy write load
+VUS_START=60 VUS_SUBMIT=80 VUS_LEADERBOARD=20 VUS_STATS=20 VUS_TOPICS=20 DURATION=10m ./run-live.sh constant
+
+# Local with k6 directly
+VUS=25 DURATION=5m k6 run -e BASE_URL=http://localhost:8000 scripts/quiz-constant.js
+```
 
 ---
 
@@ -270,10 +364,11 @@ curl http://localhost:8000/api/topics
 ## Suggested test progression
 
 1. **Smoke** — confirm scripts work (`./run-local.sh smoke`)
-2. **Load** — baseline at 25 users (`./run-local.sh load`)
-3. **Review** — CloudWatch + RDS connections
-4. **Stress** — find limits (`./run-local.sh stress`)
-5. **Tune** — ECS CPU/memory, RDS size, gunicorn workers, DB pool settings
+2. **Load** — baseline ramp to 50 users (`./run-local.sh load`)
+3. **Constant** — steady per-route load (`VUS=50 DURATION=10m ./run-live.sh constant`)
+4. **Review** — CloudWatch + RDS connections
+5. **Stress** — find limits (`./run-live.sh stress`)
+6. **Tune** — ECS CPU/memory, RDS size, gunicorn workers, DB pool settings
 
 ---
 
@@ -285,9 +380,10 @@ loadtest/
 ├── run-local.sh
 ├── run-live.sh
 └── scripts/
-    ├── helpers.js        # shared quiz journey logic
+    ├── helpers.js        # shared request helpers per route
     ├── smoke.js          # 1-user sanity test
-    ├── quiz-load.js      # normal load profile
+    ├── quiz-load.js      # ramping load profile
+    ├── quiz-constant.js  # constant VUs per API route
     ├── quiz-stress.js    # high load profile
     └── frontend-load.js  # ALB/frontend path test
 ```

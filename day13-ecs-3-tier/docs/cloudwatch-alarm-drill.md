@@ -1,510 +1,438 @@
-# CloudWatch Alarm Drill Guide
+# Troubleshooting Scenarios — ECS 3-Tier Quiz App
 
-Step-by-step guide to **intentionally trigger** each CloudWatch alarm defined in `infra/cloudwatch.tf`, verify it fired, and recover safely.
+Interview-style troubleshooting scenarios based on the **day13-ecs-3-tier** stack: React frontend on ECS, Flask backend on ECS (Service Connect), PostgreSQL on RDS, ALB in front, CloudWatch alarms in `infra/cloudwatch.tf`.
 
-Use this on the **dev** environment only unless you explicitly own prod.
+Use this doc two ways:
+
+1. **Interview prep** — read the question, try to answer, then check the model answer
+2. **Hands-on lab** — simulate each scenario on dev and watch alarms fire (see [Lab appendix](#lab-appendix-simulate-on-dev))
 
 ---
 
-## Environment reference
+## Stack context (know this first)
+
+```
+Users → ALB (public) → Frontend ECS task (private)
+                              ↓ Service Connect (backend:8000)
+                         Backend ECS task (private)
+                              ↓ port 5432
+                         RDS PostgreSQL (private)
+```
+
+| Layer | What runs | Health check |
+|-------|-----------|--------------|
+| ALB | Routes to frontend only | `GET /health` on frontend |
+| Frontend | Express + React static | `/health` → 200 |
+| Backend | Flask + gunicorn | `/health` → DB `SELECT 1` |
+| RDS | PostgreSQL | N/A (backend checks it) |
+
+**Observability in this project:**
+
+- CloudWatch Logs via `awslogs` on ECS tasks
+- EMF metrics from Flask (`RequestDuration`, `HealthCheckFailure`)
+- Log metric filters for 5xx and ERROR lines
+- 8 CloudWatch alarms in `infra/cloudwatch.tf`
+- **No ECS autoscaling** configured — fixed task count under load
+
+**Dev environment names:**
 
 | Item | Value |
 |------|--------|
-| Live app URL | `https://devopsdojo.livingdevops.org` |
-| Alarm name prefix | `dev-devopsdojo-*` |
-| Metric namespace (app) | `dev/devopsdojo/Backend` |
+| Live URL | `https://devopsdojo.livingdevops.org` |
+| Alarm prefix | `dev-devopsdojo-*` |
 | ECS cluster | `dev-april26bootcamp-devopsdojo` |
-| Backend service | `dev-april26bootcamp-devopsdojo-backend` |
-| Frontend service | `dev-april26bootcamp-devopsdojo-frontend` |
-| Backend log group | `/ecs/dev-april26bootcamp-devopsdojo-backend` |
-
-Replace `dev` / `devopsdojo` if your Terraform vars differ.
 
 ---
 
-## Before you start
+## Scenario 1: Users report the app is down — site returns 503
 
-### 1. Confirm alarms exist
+### The interview question
 
-AWS Console → **CloudWatch** → **Alarms** → filter by `dev-devopsdojo`.
+> *"Users hit your app URL and get 503 Service Unavailable. The ALB is up. Where do you start?"*
 
-You should see 8 alarms:
+### Symptoms
 
-| Alarm name | Metric |
-|------------|--------|
-| `dev-devopsdojo-alb-unhealthy-targets` | `UnHealthyHostCount` |
-| `dev-devopsdojo-alb-target-5xx` | `HTTPCode_Target_5XX_Count` |
-| `dev-devopsdojo-alb-high-latency` | `TargetResponseTime` |
-| `dev-devopsdojo-backend-cpu-high` | `CPUUtilization` |
-| `dev-devopsdojo-backend-memory-high` | `MemoryUtilization` |
-| `dev-devopsdojo-backend-request-latency` | `RequestDuration` (EMF) |
-| `dev-devopsdojo-backend-5xx-rate` | `Backend5xxCount` (log filter) |
-| `dev-devopsdojo-backend-health-failure` | `HealthCheckFailure` (EMF) |
+- Browser shows **503**
+- `curl -I https://devopsdojo.livingdevops.org/health` → `503`
+- ALB is **active**; issue is at the target layer
 
-### 2. Add SNS notifications (required to receive alerts)
+### How you investigate
 
-Alarms currently change state in CloudWatch but **do not email you** until SNS is wired.
+1. **ALB → Target groups** — are any targets **healthy**?
+2. **ECS → frontend service** — is `runningCount == desiredCount`?
+3. **ECS task logs** — is the frontend container crashing on startup?
+4. **Target group health check** — path `/health`, expect **200** (not 302)
 
-**Terraform sketch** (add to `infra/cloudwatch.tf`):
+### Root causes (most common first)
 
-```hcl
-resource "aws_sns_topic" "alerts" {
-  name = "${var.environment}-${var.project}-alerts"
-}
+| Cause | Clue |
+|-------|------|
+| Frontend desired count = 0 | No tasks registered with target group |
+| Frontend task failing health check | Tasks start then go **unhealthy** |
+| Wrong health check path | ALB expects 200; app redirects or returns 404 |
+| Deployment in progress / bad image | New tasks fail; old tasks already drained |
 
-resource "aws_sns_topic_subscription" "alerts_email" {
-  topic_arn = aws_sns_topic.alerts.arn
-  protocol  = "email"
-  endpoint  = "your-email@example.com"   # change this
-}
+### Fix
 
-# On each aws_cloudwatch_metric_alarm:
-# alarm_actions = [aws_sns_topic.alerts.arn]
-# ok_actions    = [aws_sns_topic.alerts.arn]
-```
+- Scale frontend **desired count ≥ 1**
+- Fix health check path or app `/health` handler
+- Roll back bad deployment if new tasks fail
 
-Then:
+### Prevention
 
-```bash
-cd infra
-terraform apply -var-file=vars/dev.tfvars
-```
+- Alarm on `UnHealthyHostCount > 0` (we have `dev-devopsdojo-alb-unhealthy-targets`)
+- Deployment circuit breaker on ECS
+- Smoke test `/health` after every deploy
 
-Confirm the SNS subscription from your inbox before running drills.
+### CloudWatch alarms
 
-### 3. Open these tabs before each drill
+| Alarm | Fires when |
+|-------|------------|
+| `dev-devopsdojo-alb-unhealthy-targets` | Any unhealthy frontend target |
 
-- CloudWatch → **Alarms**
-- CloudWatch → **Metrics** (relevant namespace)
-- ECS → cluster → **Services**
-- (Optional) `/ecs/...-backend` log group → **Logs Insights**
+### Strong interview answer (one paragraph)
 
-### 4. General rules
+*"503 from an ALB almost always means no healthy targets in the target group — not that the ALB itself is broken. I'd check target health first, then ECS frontend service running count vs desired, then task logs for crash loops. Health check misconfiguration is a common gotcha: our frontend must return 200 on `/health`. I'd have an alarm on UnHealthyHostCount so we know before users tell us."*
 
-- Run drills in a **maintenance window** — the live app may return 503 or slow down.
-- Alarms use **evaluation periods** — expect **1–15 minutes** before state = `ALARM`.
-- After each drill: **recover** → wait for state = `OK` → then start the next drill.
-- Load tests add `loadtest_*` names to the live leaderboard — use `PLAYER_PREFIX=alarmtest`.
+### Simulate on dev
+
+ECS → frontend service → set **Desired tasks: 0** → wait ~2 min → confirm 503 → scale back to 1.
 
 ---
 
-## Quick reference — how to trigger each alarm
+## Scenario 2: Site loads but API calls fail — partial outage
 
-| # | Alarm | Easiest trigger | Recovery | Typical wait |
-|---|-------|-----------------|----------|--------------|
-| 1 | `backend-health-failure` | Block backend → RDS on port 5432 | Restore SG rule | ~1–2 min |
-| 2 | `backend-5xx-rate` | Scale backend to 0 + load test | Scale backend to 1 | ~5 min |
-| 3 | `backend-request-latency` | Sustained slow API responses | Stop slow traffic | ~3 min |
-| 4 | `alb-unhealthy-targets` | Scale frontend to 0 | Scale frontend to 1 | ~2 min |
-| 5 | `alb-target-5xx` | Scale backend to 0 + live load test | Scale backend to 1 | ~5–10 min |
-| 6 | `alb-high-latency` | Slow responses through live URL | Stop slow traffic | ~3 min |
-| 7 | `backend-cpu-high` | `./run-live.sh stress` | Stop k6 | ~15 min |
-| 8 | `backend-memory-high` | `./run-live.sh stress` (or memory leak sim) | Stop k6 | ~15 min |
+### The interview question
 
-Recommended order: **1 → 4 → 5 → 2 → 3 → 6 → 7/8**
+> *"The homepage loads fine but quiz and API calls fail with 502/504/500. Frontend is healthy in the target group. What happened?"*
 
----
+### Symptoms
 
-## Drill 1 — `backend-health-failure`
+- `GET /` works (static React)
+- `GET /api/topics` fails
+- Frontend logs show **proxy errors** to `http://backend:8000`
+- ALB may show rising **HTTPCode_Target_5XX_Count**
 
-**What it means:** Backend `/health` cannot reach RDS (`SELECT 1` fails).  
-**Metric:** `HealthCheckFailure` in `dev/devopsdojo/Backend`  
-**Threshold:** Sum > 0 in 60 seconds (even one failure fires).
+### How you investigate
 
-### Trigger
+1. Confirm frontend targets are **healthy** (ALB)
+2. **ECS → backend service** — running vs desired count
+3. **Service Connect** — is backend registered in the mesh namespace?
+4. From frontend task network (or Service Connect DNS): can you reach `http://backend:8000/health`?
+5. **Backend security group** — allows inbound from frontend SG on port 8000?
 
-1. AWS Console → **EC2** → **Security Groups**
-2. Find the **RDS security group** (allows 5432 from backend SG)
-3. **Edit inbound rules** → remove or disable the rule allowing PostgreSQL from the backend SG
-4. Generate health check traffic:
+### Root causes
 
-```bash
-# Hit backend health via frontend proxy (live app)
-while true; do
-  curl -s -o /dev/null -w "%{http_code}\n" https://devopsdojo.livingdevops.org/health
-  sleep 2
-done
-```
+| Cause | Clue |
+|-------|------|
+| Backend scaled to 0 or tasks crashing | `runningCount = 0` |
+| Service Connect misconfigured | Frontend cannot resolve `backend:8000` |
+| Backend SG blocks frontend | Connection timeout in proxy logs |
+| Backend OOM / crash under load | Tasks cycling in ECS events |
 
-Or call the backend health path if you have VPC access:
+### Fix
 
-```bash
-curl -s http://<backend-task-ip>:8000/health
-```
+- Restore backend desired count
+- Fix SG rules: frontend SG → backend SG on 8000
+- Verify Service Connect namespace and port name match Terraform
+- Increase task memory if OOM
 
-### Verify
+### Prevention
 
-- CloudWatch alarm `dev-devopsdojo-backend-health-failure` → **ALARM**
-- Backend logs contain `"health check failed"` with `"levelname": "ERROR"`
-- EMF line with `HealthCheckFailure` in log group
+- Separate alarms for frontend health vs backend errors
+- Monitor `HTTPCode_Target_5XX_Count` on ALB
+- Backend `/health` with DB check (we have this)
 
-### Recover
+### CloudWatch alarms
 
-1. Restore the RDS inbound rule (backend SG → port 5432)
-2. Confirm health returns 200:
+| Alarm | Fires when |
+|-------|------------|
+| `dev-devopsdojo-alb-target-5xx` | ≥ 10 target 5xx in 5 min |
+| `dev-devopsdojo-backend-5xx-rate` | ≥ 5 logged backend 5xx in 5 min |
 
-```bash
-curl https://devopsdojo.livingdevops.org/health
-```
+### Strong interview answer
 
-3. Wait 1–2 minutes for alarm → **OK**
+*"This is a partial outage — edge is fine, API tier is not. Frontend proxies `/api` to the backend over Service Connect, so I'd verify backend tasks are running, then network path: frontend SG to backend SG, then Service Connect DNS. A healthy ALB target doesn't mean the full stack is healthy. I'd alert on target 5xx separately from unhealthy targets."*
+
+### Simulate on dev
+
+Keep frontend at 1, set **backend desired = 0**, run `PLAYER_PREFIX=alarmtest ./run-live.sh load` from `loadtest/`.
 
 ---
 
-## Drill 2 — `backend-5xx-rate`
+## Scenario 3: RDS security group is broken — database unreachable
 
-**What it means:** ≥ 5 HTTP 5xx responses logged in 5 minutes.  
-**Metric:** `Backend5xxCount` (log metric filter on `{ $.status >= 500 }`)
+### The interview question
 
-### Trigger (option A — backend down, recommended)
+> *"After a security group change, the app is slow or failing. Backend health check fails. RDS looks fine in the console. What do you check?"*
 
-1. ECS → `dev-april26bootcamp-devopsdojo-backend` → **Update service** → **Desired tasks: 0**
-2. Wait ~30 seconds for tasks to stop
-3. Run load test through live URL (frontend proxy will error):
+### Symptoms
+
+- Backend `/health` returns **503** with `"database": "disconnected"`
+- Quiz API returns 500
+- RDS instance status = **available** (misleading — network path is broken)
+- CloudWatch: `HealthCheckFailure` metric spikes
+
+### How you investigate
+
+1. **Backend logs** — `"health check failed"` after `SELECT 1`
+2. **RDS security group inbound** — is **5432** allowed from **backend SG**?
+3. **Backend SG outbound** — can it reach RDS on 5432? (usually allow all outbound)
+4. **Subnet routing** — backend and RDS in same VPC private subnets?
+5. **Secrets / env** — `DB_HOST`, credentials still correct? (secondary if SG is the issue)
+
+### Root causes
+
+| Cause | Clue |
+|-------|------|
+| RDS SG rule removed | SG change ticket correlates with incident |
+| Wrong source SG on RDS rule | Rule exists but points to old SG |
+| RDS moved to new SG without updating rules | Terraform drift or manual change |
+| NACL blocking 5432 | Less common; SG is first suspect |
+
+### Fix
+
+- Restore inbound on RDS SG: **PostgreSQL 5432 from backend SG**
+- Apply Terraform if SG is managed there: `infra/sg.tf`
+
+### Prevention
+
+- Alarm on `HealthCheckFailure` (`dev-devopsdojo-backend-health-failure`)
+- Deep health check that hits DB (not just "process is running")
+- Treat SG changes as high-risk; require plan/apply review
+
+### CloudWatch alarms
+
+| Alarm | Fires when |
+|-------|------------|
+| `dev-devopsdojo-backend-health-failure` | DB health check fails (even once per minute) |
+| `dev-devopsdojo-backend-5xx-rate` | Follow-on API errors |
+
+### Strong interview answer
+
+*"RDS can show 'available' while the app cannot connect — that's a network path problem, not a database engine problem. I'd trace backend SG → RDS SG on 5432 first. Our health endpoint runs SELECT 1, so it catches this before users finish a full quiz flow. I'd alarm on that health failure metric, not just on RDS CPU."*
+
+### Simulate on dev
+
+EC2 → RDS security group → **remove inbound rule** for 5432 from backend SG → curl `/health` in a loop → **restore rule** when done.
+
+---
+
+## Scenario 4: Traffic spike — system overloaded, autoscaling not configured
+
+### The interview question
+
+> *"Quiz day — traffic 10x normal. CPU is pegged, responses are slow, some requests fail. You have CloudWatch alarms but no autoscaling. Walk me through what you see and what you'd do."*
+
+### Symptoms
+
+- Page loads slowly; quiz submit times out
+- ECS backend **CPU > 80%**, **memory high**
+- EMF `RequestDuration` average > 2 seconds
+- ALB `TargetResponseTime` > 3 seconds
+- Rising 5xx under sustained load
+- **Desired count stays at 1** — no new tasks appear
+
+### How you investigate
+
+1. **ECS metrics** — CPU, memory per service
+2. **CloudWatch** — `RequestDuration`, `HttpRequestCount` (EMF)
+3. **ALB** — request count, latency, 5xx
+4. **RDS** — `DatabaseConnections`, CPU (backend pool may exhaust connections)
+5. **Check autoscaling** — is there an `aws_appautoscaling_target`? (**Not in this project.**)
+
+### Root causes
+
+| Cause | Clue |
+|-------|------|
+| Fixed task count, traffic exceeded capacity | CPU/memory alarms, no scale-out events |
+| Single backend task bottleneck | One task at 100% CPU |
+| DB connection pool exhausted | RDS connections maxed; errors in Flask logs |
+| No autoscaling policy | ECS desired count never changes |
+
+### Fix (immediate)
+
+- **Manual scale out** — increase backend `desired_count`
+- Stop non-essential traffic if abuse
+- **Scale up** task CPU/memory if vertical headroom helps
+
+### Fix (long-term)
+
+- Add **ECS Application Auto Scaling** on CPU or request count
+- Tune gunicorn workers vs task CPU
+- RDS read replica or larger instance if DB-bound
+- Rate limiting on quiz start/submit
+
+### Prevention
+
+| Alarm | Purpose |
+|-------|---------|
+| `dev-devopsdojo-backend-cpu-high` | Early warning before total failure |
+| `dev-devopsdojo-backend-memory-high` | Catch leaks / undersized tasks |
+| `dev-devopsdojo-backend-request-latency` | User experience degradation |
+| `dev-devopsdojo-alb-high-latency` | End-to-end slowness |
+
+Pair alarms with **auto scaling actions** or runbooks — alarms alone don't fix capacity.
+
+### Strong interview answer
+
+*"Alarms tell you you're on fire; autoscaling is the sprinkler. With fixed desired count, traffic spikes saturate the single Fargate task — CPU and latency alarms fire, then 5xx. I'd scale tasks manually first, then add target-tracking scaling on ECS CPU or ALB request count per target. I'd also check RDS connections because Flask SQLAlchemy pool defaults can become the bottleneck before CPU does."*
+
+### Simulate on dev
 
 ```bash
-cd loadtest
-brew install k6   # if needed
-PLAYER_PREFIX=alarmtest ./run-live.sh load
+cd day13-ecs-3-tier/loadtest
+./run-live.sh load      # ~25 users, ~5 min
+./run-live.sh stress    # ~100 users — needed for CPU/memory alarms (~15–20 min)
 ```
 
-4. Let it run until alarm fires (~5 minutes of 5xx logs)
+This stack has **no autoscaling** — that's intentional for learning why alarms fire without relief.
 
-### Trigger (option B — repeated real 500s)
+---
 
-If you add a dev-only route that returns 500 (see [Future improvements](#future-improvements)), hit it 6+ times in 5 minutes:
+## Scenario 5: CloudWatch alarm fired — backend 5xx rate high
 
-```bash
-for i in $(seq 1 10); do
-  curl -s -o /dev/null -w "%{http_code}\n" https://devopsdojo.livingdevops.org/api/debug/500
-  sleep 5
-done
+### The interview question
+
+> *"You get paged for `backend-5xx-rate`. ALB looks mostly fine. How do you find the failing requests?"*
+
+### Symptoms
+
+- Alarm: `dev-devopsdojo-backend-5xx-rate`
+- Metric: `Backend5xxCount` from **log metric filter** (`status >= 500` in JSON logs)
+
+### How you investigate
+
+1. **Logs Insights** on `/ecs/dev-april26bootcamp-devopsdojo-backend`:
+
 ```
-
-### Verify
-
-- Alarm `dev-devopsdojo-backend-5xx-rate` → **ALARM**
-- Logs Insights query:
-
-```
-fields @timestamp, status, path, method
+fields @timestamp, method, path, status, duration_ms
 | filter status >= 500
 | sort @timestamp desc
-| limit 20
+| limit 50
 ```
 
-### Recover
+2. Correlate with deploy time, RDS issues, or traffic spike
+3. Check **EMF** `RequestDuration` — are slow requests timing out into 5xx?
+4. Check recent Terraform / SG / scale changes
 
-1. Scale backend desired tasks back to **1**
-2. Stop k6 (Ctrl+C)
-3. Wait for 5xx count to drop → alarm **OK**
+### Root causes
+
+Often a **symptom** of Scenarios 2–4, not its own root cause:
+
+- DB unreachable (Scenario 3)
+- Backend overloaded (Scenario 4)
+- Backend down while frontend proxies (Scenario 2)
+- Application bug on specific route
+
+### Fix
+
+Fix the underlying scenario; 5xx alarm clears when errors stop.
+
+### Strong interview answer
+
+*"This alarm is log-driven — it counts structured JSON log lines where status >= 500. I'd use Logs Insights to group by path and status, then correlate with ECS events and RDS health. The alarm tells me customers are getting errors; logs tell me which endpoint and whether it's DB, timeout, or code."*
 
 ---
 
-## Drill 3 — `backend-request-latency`
+## Scenario 6: Latency alarm — app is slow but not down
 
-**What it means:** Average `RequestDuration` (EMF) > **2000 ms** for 3 consecutive 60-second periods.  
-**Metric:** `RequestDuration` in `dev/devopsdojo/Backend`
+### The interview question
 
-### Trigger
+> *"Latency alarms fired but error rate is low. Users say the app feels sluggish. What next?"*
 
-You need sustained slow API requests (~3+ minutes).
+### Symptoms
 
-**Option A — load + slow endpoint (after adding debug route):**
+- `dev-devopsdojo-backend-request-latency` — EMF avg > 2000 ms
+- `dev-devopsdojo-alb-high-latency` — ALB avg > 3 s
+- Error rate still near zero
 
-```bash
-k6 run -e BASE_URL=https://devopsdojo.livingdevops.org loadtest/scripts/quiz-load.js
-# while a /api/debug/slow?s=3 endpoint is enabled on backend
-```
+### How you investigate
 
-**Option B — temporary Flask delay (dev only):**
+1. **Trace the path** — ALB latency vs backend EMF `RequestDuration`
+2. **RDS** — slow queries, high CPU, connection wait
+3. **ECS CPU** — throttling without hard failures
+4. **Downstream** — is frontend waiting on backend on every `/api` call?
+5. **Load** — gradual traffic increase without scale-out
 
-Add a short sleep in a frequently hit route (e.g. `/api/topics`) behind `FLASK_DEBUG=1`, deploy, then:
+### Root causes
 
-```bash
-cd loadtest
-./run-live.sh load
-```
+- Under-provisioned tasks (Scenario 4, early stage)
+- Missing DB index on leaderboard / quiz queries
+- Cold start after deploy (less common on Fargate)
+- Too few gunicorn workers for CPU allocated
 
-Keep load running for **at least 4 minutes**.
+### Fix
 
-### Verify
+- Scale out / up ECS tasks
+- Optimize slow DB queries
+- Add autoscaling before latency becomes errors
 
-- Alarm `dev-devopsdojo-backend-request-latency` → **ALARM**
-- CloudWatch → Metrics → `dev/devopsdojo/Backend` → `RequestDuration` graph shows avg > 2000
+### Strong interview answer
 
-### Recover
-
-1. Remove sleep / disable slow endpoint
-2. Redeploy backend if needed
-3. Stop load test
-
----
-
-## Drill 4 — `alb-unhealthy-targets`
-
-**What it means:** ALB target group has **any** unhealthy frontend task.  
-**Metric:** `UnHealthyHostCount` > 0 for 2 × 60-second periods.
-
-### Trigger
-
-**Easiest:** scale frontend to zero.
-
-1. ECS → `dev-april26bootcamp-devopsdojo-frontend` → **Update service** → **Desired tasks: 0**
-2. Wait ~2 minutes
-
-Alternative: deploy a broken frontend image where `/health` returns non-200.
-
-### Verify
-
-- Alarm `dev-devopsdojo-alb-unhealthy-targets` → **ALARM**
-- EC2 → **Target Groups** → targets show **unhealthy**
-- Live URL returns **503**:
-
-```bash
-curl -I https://devopsdojo.livingdevops.org/health
-```
-
-### Recover
-
-1. Scale frontend desired tasks to **1**
-2. Wait for target **healthy** (~1–2 min)
-3. Alarm → **OK**
+*"Latency alarms are early warnings — users feel pain before 5xx spikes. I'd split ALB latency from backend RequestDuration to see if slowness is proxy, app, or DB. Fix capacity or query performance before error-rate alarms follow."*
 
 ---
 
-## Drill 5 — `alb-target-5xx`
+## Quick reference — symptom → first check
 
-**What it means:** ≥ **10** HTTP 5xx from targets in a **5-minute** window (2 evaluation periods).  
-**Metric:** `HTTPCode_Target_5XX_Count`
-
-### Trigger
-
-1. Keep **frontend** at desired = 1
-2. Scale **backend** to desired = 0
-3. Run live load test:
-
-```bash
-cd loadtest
-PLAYER_PREFIX=alarmtest ./run-live.sh load
-```
-
-Frontend proxy errors produce target 5xx visible to the ALB.
-
-### Verify
-
-- Alarm `dev-devopsdojo-alb-target-5xx` → **ALARM**
-- ALB metrics → `HTTPCode_Target_5XX_Count` rising
-
-### Recover
-
-1. Scale backend to **1**
-2. Stop k6
-3. Wait ~5–10 minutes for metric to clear
+| User report | Check first | Likely scenario |
+|-------------|-------------|-----------------|
+| 503 on everything | ALB target health | **1** — frontend down |
+| UI works, quiz broken | Backend ECS count + Service Connect | **2** — backend down |
+| Worked until SG change | RDS SG inbound 5432 | **3** — RDS SG broken |
+| Slow then errors under load | ECS CPU + desired count | **4** — overload, no autoscaling |
+| Paged on 5xx alarm | Logs Insights by path | **5** — symptom of 2–4 |
+| Slow but no errors | EMF latency + RDS | **6** — capacity or DB |
 
 ---
 
-## Drill 6 — `alb-high-latency`
+## Alarm cheat sheet
 
-**What it means:** ALB `TargetResponseTime` average > **3 seconds** for 3 × 60-second periods.
-
-### Trigger
-
-Same as Drill 3, but traffic must go through the **live URL** (not direct backend):
-
-```bash
-cd loadtest
-./run-live.sh load
-```
-
-Requires backend responses (or proxy) consistently > 3s — use a dev slow endpoint or artificial delay.
-
-### Verify
-
-- Alarm `dev-devopsdojo-alb-high-latency` → **ALARM**
-- ALB metric `TargetResponseTime` > 3
-
-### Recover
-
-Remove delay, stop load, wait ~3 minutes.
+| Alarm | What it really means |
+|-------|----------------------|
+| `alb-unhealthy-targets` | No healthy frontend for ALB |
+| `alb-target-5xx` | Users getting server errors through frontend |
+| `alb-high-latency` | End-user requests taking > 3 s avg |
+| `backend-cpu-high` | Backend task CPU > 80% sustained |
+| `backend-memory-high` | Backend task memory > 80% sustained |
+| `backend-request-latency` | Flask requests > 2 s avg (EMF) |
+| `backend-5xx-rate` | Logged HTTP 5xx count high |
+| `backend-health-failure` | Backend cannot reach RDS |
 
 ---
 
-## Drill 7 — `backend-cpu-high`
+## Lab appendix — simulate on dev
 
-**What it means:** Backend ECS service CPU > **80%** average for 3 × **5-minute** periods (~15 min).
+**Before each lab:** CloudWatch → Alarms open. Restore after each test.
 
-### Trigger
-
-```bash
-cd loadtest
-brew install k6
-./run-live.sh stress
-```
-
-Let it run **at least 20 minutes**. If CPU stays below 80% on 1024 CPU Fargate:
-
-- Run stress + normal load together, or
-- Temporarily lower task CPU in Terraform (e.g. 256) so the same load hits a higher %
-
-### Verify
-
-- ECS → backend service → **Metrics** → CPU > 80%
-- Alarm `dev-devopsdojo-backend-cpu-high` → **ALARM**
-
-### Recover
-
-Stop k6; CPU alarm clears after ~15 minutes of normal utilization.
-
----
-
-## Drill 8 — `backend-memory-high`
-
-**What it means:** Backend memory > **80%** for 3 × 5-minute periods.
-
-### Trigger
-
-Same as Drill 7 — stress load is the first approach. Memory alarms often need:
-
-- Longer stress duration, or
-- A dev endpoint that allocates memory (advanced)
-
-### Verify
-
-- ECS → backend → Memory utilization > 80%
-- Alarm `dev-devopsdojo-backend-memory-high` → **ALARM**
-
-### Recover
-
-Stop stress load; restart tasks if needed (ECS → **Force new deployment**).
-
----
-
-## Verification checklist (use for every drill)
-
-Copy this per alarm:
-
-```
-[ ] Alarm name: _______________________
-[ ] Trigger action completed
-[ ] CloudWatch alarm state = ALARM (time: ___)
-[ ] SNS email received (if configured)
-[ ] Metric graph shows expected spike
-[ ] Recovery action completed
-[ ] Alarm state = OK (time: ___)
-[ ] Live app healthy (curl /health = 200)
-```
-
-**Live health check:**
-
-```bash
-curl -s https://devopsdojo.livingdevops.org/health
-curl -s https://devopsdojo.livingdevops.org/api/topics | head -c 200
-```
-
----
-
-## Useful AWS CLI commands
-
-List alarms:
-
-```bash
-aws cloudwatch describe-alarms \
-  --alarm-name-prefix "dev-devopsdojo" \
-  --region ap-south-1 \
-  --query 'MetricAlarms[].{Name:AlarmName,State:StateValue}' \
-  --output table
-```
-
-Watch alarm state:
-
-```bash
-watch -n 10 'aws cloudwatch describe-alarms \
-  --alarm-names dev-devopsdojo-backend-health-failure \
-  --region ap-south-1 \
-  --query "MetricAlarms[0].StateValue" \
-  --output text'
-```
-
-Scale ECS service:
-
-```bash
-aws ecs update-service \
-  --cluster dev-april26bootcamp-devopsdojo \
-  --service dev-april26bootcamp-devopsdojo-backend \
-  --desired-count 0 \
-  --region ap-south-1
-```
-
-Restore:
-
-```bash
-aws ecs update-service \
-  --cluster dev-april26bootcamp-devopsdojo \
-  --service dev-april26bootcamp-devopsdojo-backend \
-  --desired-count 1 \
-  --region ap-south-1
-```
-
-Logs Insights (backend 5xx):
-
-```bash
-aws logs start-query \
-  --log-group-name "/ecs/dev-april26bootcamp-devopsdojo-backend" \
-  --start-time $(($(date +%s) - 900)) \
-  --end-time $(date +%s) \
-  --query-string 'fields @timestamp, status, path | filter status >= 500 | sort @timestamp desc | limit 20' \
-  --region ap-south-1
-```
-
----
-
-## Load test commands (live app)
-
-From `day13-ecs-3-tier/loadtest`:
+| Scenario | Break it | Recover |
+|----------|----------|---------|
+| **1 — 503 / frontend** | Frontend desired = 0 | Frontend desired = 1 |
+| **2 — API down** | Backend desired = 0 + `./run-live.sh load` | Backend desired = 1 |
+| **3 — RDS SG** | Remove RDS SG inbound from backend | Restore SG rule |
+| **4 — Overload** | `./run-live.sh stress` for 15–20 min | Stop k6; wait for metrics |
 
 ```bash
 # Preflight
 curl https://devopsdojo.livingdevops.org/health
 
-# Light traffic
+# Load tests (Scenarios 2 & 4)
+cd day13-ecs-3-tier/loadtest
 ./run-live.sh smoke
-
-# Sustained load (5xx, latency drills)
 PLAYER_PREFIX=alarmtest ./run-live.sh load
-
-# Heavy load (CPU / memory drills)
 PLAYER_PREFIX=alarmtest ./run-live.sh stress
 ```
 
-See `loadtest/README.md` for full details.
+**List alarm states:**
 
----
-
-## Future improvements
-
-For repeatable drills without scaling services to zero, add **dev-only** routes (gated by env var `ENABLE_ALARM_TEST_ROUTES=1`):
-
-| Route | Alarm triggered |
-|-------|-----------------|
-| `GET /api/debug/500` | `backend-5xx-rate` |
-| `GET /api/debug/slow?s=3` | `backend-request-latency`, `alb-high-latency` |
-| `GET /api/debug/health-fail` | `backend-health-failure` (mock EMF, no RDS break) |
-
-Plus a k6 script `loadtest/scripts/alarm-drill.js` that runs each scenario in sequence.
-
----
-
-## Troubleshooting
-
-| Problem | Cause | Fix |
-|---------|-------|-----|
-| Alarm stays OK | Not enough signal / wrong period | Wait full evaluation window; check metric graph |
-| Alarm stuck ALARM | Metric still breaching | Complete recovery; check ECS tasks running |
-| No email | SNS not configured | Add SNS + `alarm_actions` in Terraform |
-| 503 on live URL | Frontend scaled to 0 or unhealthy | Scale frontend to 1; check target group |
-| Load test fails immediately | Live app down | Fix ECS services first |
-| `backend-5xx-rate` never fires | Errors not logged as `status >= 500` | Confirm JSON logs include numeric `status` field |
+```bash
+aws cloudwatch describe-alarms \
+  --alarm-name-prefix dev-devopsdojo \
+  --region ap-south-1 \
+  --query 'MetricAlarms[].{Name:AlarmName,State:StateValue}' \
+  --output table
+```
 
 ---
 
@@ -512,8 +440,25 @@ Plus a k6 script `loadtest/scripts/alarm-drill.js` that runs each scenario in se
 
 | File | Purpose |
 |------|---------|
-| `infra/cloudwatch.tf` | Alarm definitions + log metric filters |
-| `app/backend/app/cloudwatch_metrics.py` | EMF metrics (`RequestDuration`, `HealthCheckFailure`) |
-| `app/backend/app/logging_config.py` | JSON logs for 5xx filter |
-| `loadtest/run-live.sh` | Load test against live URL |
-| `loadtest/README.md` | Load testing guide |
+| `infra/cloudwatch.tf` | Alarm definitions |
+| `infra/sg.tf` | Security groups (Scenario 3) |
+| `infra/ecs.tf` | Services, Service Connect |
+| `app/backend/app/__init__.py` | DB health check, EMF logging |
+| `loadtest/run-live.sh` | Load against live URL |
+| `loadtest/README.md` | k6 setup |
+
+---
+
+## Bonus interview questions (short)
+
+**Q: Why is the backend not behind the ALB directly?**  
+A: Three-tier design — only frontend is public. Backend stays private; Service Connect gives stable DNS (`backend:8000`) without exposing it to the internet.
+
+**Q: Why use EMF instead of PutMetricData?**  
+A: EMF writes metrics through logs we already ship to CloudWatch — no extra IAM permissions or API calls from the app.
+
+**Q: What's missing for production readiness in this stack?**  
+A: ECS autoscaling, SNS on alarms, multi-AZ RDS (prod tfvars), rate limiting, and runbooks linked to each alarm.
+
+**Q: How would you know the problem is RDS vs the app?**  
+A: Backend `/health` runs `SELECT 1` — fails with DB issues before quiz logic runs. Check `HealthCheckFailure` metric and health response body.

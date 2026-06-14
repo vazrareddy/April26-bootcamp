@@ -90,6 +90,83 @@ export function checkSubmitResponse(response) {
   });
 }
 
+export function runQuizStart(http, sleepFn, vu, iter) {
+  const topic = topicSlug();
+  const player = playerName(vu, iter);
+
+  const startResponse = http.post(
+    `${baseUrl()}/api/quiz/${topic}/start`,
+    JSON.stringify({ player_name: player }),
+    { headers: jsonHeaders(), tags: { name: 'quiz_start' } }
+  );
+
+  const ok = Boolean(checkStartResponse(startResponse));
+  sleepFn(1);
+  return ok;
+}
+
+export function runQuizSubmit(http, sleepFn, vu, iter) {
+  const topic = topicSlug();
+  const player = playerName(vu, iter);
+
+  const startResponse = http.post(
+    `${baseUrl()}/api/quiz/${topic}/start`,
+    JSON.stringify({ player_name: player }),
+    { headers: jsonHeaders(), tags: { name: 'quiz_start' } }
+  );
+
+  const quiz = checkStartResponse(startResponse);
+  if (!quiz) {
+    return false;
+  }
+
+  sleepFn(0.5);
+
+  const submitResponse = http.post(
+    `${baseUrl()}/api/quiz/submit`,
+    JSON.stringify({
+      session_id: quiz.session_id,
+      answers: buildAnswers(quiz.questions),
+      time_taken_seconds: 30 + (iter % 20),
+    }),
+    { headers: jsonHeaders(), tags: { name: 'quiz_submit' } }
+  );
+
+  const ok = checkSubmitResponse(submitResponse);
+  sleepFn(1);
+  return ok;
+}
+
+export function runLeaderboardTopicLoad(http, sleepFn) {
+  const topic = topicSlug();
+  const response = http.get(
+    `${baseUrl()}/api/leaderboard?scope=topic&topic=${topic}&limit=20`,
+    { tags: { name: 'leaderboard_topic' } }
+  );
+  const ok = checkResponse(response, 'leaderboard');
+  sleepFn(1);
+  return ok;
+}
+
+export function runLeaderboardStatsLoad(http, sleepFn) {
+  const response = http.get(`${baseUrl()}/api/leaderboard/stats`, {
+    tags: { name: 'leaderboard_stats' },
+  });
+  const ok = checkResponse(response, 'stats');
+  sleepFn(1);
+  return ok;
+}
+
+export function runTopicsLoad(http, sleepFn) {
+  const response = http.get(`${baseUrl()}/api/topics`, {
+    headers: jsonHeaders(),
+    tags: { name: 'topics' },
+  });
+  const ok = checkResponse(response, 'topics');
+  sleepFn(1);
+  return ok;
+}
+
 export function runQuizJourney(http, sleepFn, vu, iter) {
   const topic = topicSlug();
   const player = playerName(vu, iter);

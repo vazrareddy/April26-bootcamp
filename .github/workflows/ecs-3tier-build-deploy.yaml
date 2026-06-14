@@ -2,9 +2,13 @@
 name: ECS DEV 3-Tier Build Deploy
 
 on:
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
+    # Only trigger when source files change, not on every push to main
+    paths:
+      - 'day13-ecs-3-tier/app/backend/**'
+      - 'day13-ecs-3-tier/app/frontend/**'
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
@@ -70,11 +74,27 @@ jobs:
 
       - name: Run database migration via ECS task
         run: |
-          aws ecs run-task --cluster ${{ env.ECS_CLUSTER }} \
+          TASK_ARN=$(aws ecs run-task --cluster ${{ env.ECS_CLUSTER }} \
             --launch-type FARGATE \
             --task-definition ${{ env.ECS_TASK_DEFINITION }} \
             --network-configuration "awsvpcConfiguration={subnets=[${{ env.ECS_SUBNET }}],securityGroups=[${{ env.ECS_SECURITY_GROUP }}],assignPublicIp=DISABLED}" \
-            --overrides '{"containerOverrides":[{"name":"${{ env.CONTAINER_NAME }}","command":["/bin/sh","migrate.sh"]}]}'
+            --overrides '{"containerOverrides":[{"name":"${{ env.CONTAINER_NAME }}","command":["/bin/sh","migrate.sh"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+
+          echo "Migration task started: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster ${{ env.ECS_CLUSTER }} --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks --cluster ${{ env.ECS_CLUSTER }} --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          STOP_REASON=$(aws ecs describe-tasks --cluster ${{ env.ECS_CLUSTER }} --tasks "$TASK_ARN" \
+            --query 'tasks[0].stoppedReason' --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code $EXIT_CODE (reason: $STOP_REASON)"
+            exit 1
+          fi  
+
+          echo "Migration completed successfully"
 
   deploy-ecs-service:
     needs: [build-and-push-image, migration]

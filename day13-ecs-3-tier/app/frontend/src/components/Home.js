@@ -9,10 +9,12 @@ function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([fetchTopics(), fetchLeaderboardStats()])
-      .then(([topicsData, statsData]) => {
+    fetchTopics()
+      .then((topicsData) => {
         setTopics(topicsData);
-        setStats(statsData);
+        return fetchLeaderboardStats()
+          .then(setStats)
+          .catch(() => null);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));

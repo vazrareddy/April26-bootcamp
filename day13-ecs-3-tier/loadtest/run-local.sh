@@ -1,9 +1,13 @@
+
+
 #!/usr/bin/env bash
 set -euo pipefail
 
+# VUS=200 VUS_START=60 VUS_STATS=40 DURATION=10m ./run-live.sh constant
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${ROOT_DIR}/../app"
-SCRIPT="${1:-smoke}"
+SCRIPT="${1:-smoke}"xwww
 BASE_URL="${BASE_URL:-http://localhost:8000}"
 TOPIC="${TOPIC:-docker}"
 

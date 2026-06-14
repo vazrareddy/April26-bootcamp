@@ -9,9 +9,9 @@ locals {
       port_name       = "backend",
       container_name  = "backend-app",
       image           = "879381241087.dkr.ecr.ap-south-1.amazonaws.com/${var.environment}-${var.project}-backend:latest",
-      cpu             = 1024,
+      cpu             = 512,
       security_groups = [aws_security_group.backend_sg.id],
-      memory          = 2048,
+      memory          = 1024,
       need_alb        = false, desired_count = 1,
       environment = [
         {
@@ -64,8 +64,8 @@ locals {
       # no implict dependency on ecr repository
       image           = "879381241087.dkr.ecr.ap-south-1.amazonaws.com/${var.environment}-${var.project}-frontend:latest",
       security_groups = [aws_security_group.frontend_sg.id],
-      cpu             = 1024,
-      memory          = 2048,
+      cpu             = 512,
+      memory          = 1024,
       need_alb        = true,
       desired_count   = 1,
       environment = [

@@ -111,3 +111,9 @@ variable "ecr_repository_url_frontend" {
   default = "879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-3tier-frontend:latest"
 
 }
+
+variable "alarm_sns_topic_arn" {
+  type        = string
+  description = "SNS topic ARN for CloudWatch alarm notifications"
+  default     = "arn:aws:sns:ap-south-1:879381241087:alarm-notification"
+}
