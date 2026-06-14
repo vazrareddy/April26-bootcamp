@@ -7,3 +7,6 @@ terraform apply -var-file=vars/dev.tfvars
 terraform init -backend-config=vars/prod.tfbackend
 terraform plan -var-file=vars/prod.tfvars
 terraform apply -var-file=vars/prod.tfvars
+
+# CloudWatch alarm drills (trigger & verify alarms)
+# See ../docs/cloudwatch-alarm-drill.md

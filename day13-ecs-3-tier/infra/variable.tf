@@ -96,3 +96,18 @@ variable "frontend" {
     environment = []
   }
 }
+
+
+
+variable "ecr_repository_url_backend" {
+  type = string
+  description = "ECR repository URL for backend"
+  default = "879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-3tier-backend:latest"
+}
+
+variable "ecr_repository_url_frontend" {
+  type = string
+  description = "ECR repository URL for frontend"
+  default = "879381241087.dkr.ecr.ap-south-1.amazonaws.com/april-ecs-3tier-frontend:latest"
+
+}

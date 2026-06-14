@@ -47,6 +47,35 @@ jobs:
             -t ${{ matrix.services.ecr_repo }}:${{ github.sha }} \
             -t ${{ matrix.services.ecr_repo }}:latest .
 
+  
+  migration:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    env:
+      ECS_CLUSTER: dev-april26bootcamp-devopsdojo
+      ECS_TASK_DEFINITION: dev-april26bootcamp-devopsdojo-backend
+      ECS_SECURITY_GROUP: sg-0b16780f9fc87e0c4
+      ECS_SUBNET: subnet-0f4d4040b5910bc83
+      CONTAINER_NAME: backend-app
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run database migration via ECS task
+        run: |
+          aws ecs run-task --cluster ${{ matrix.services.ecs_cluster }} \
+            --launch-type FARGATE \
+            --task-definition ${{ env.ECS_TASK_DEFINITION }} \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ env.ECS_SUBNET }}],securityGroups=[${{ env.ECS_SECURITY_GROUP }}],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"${{ env.CONTAINER_NAME }}","command":["/bin/sh","migrate.sh"]}]}'
+
   deploy-ecs-service:
     needs: build-and-push-image
     runs-on: ubuntu-latest
